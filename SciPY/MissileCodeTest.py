@@ -8,10 +8,10 @@ Ve = Isp * g  # Exhaust velocity (m/s)
 
 # Rocket dimensions
 OD = 0.75  # Outer diameter (m)
-ID = 0.70  # Inner diameter (m)
+ID = 0.6  # Inner diameter (m)
 Thickness = (OD - ID)  # Structure thickness (m)
 Total_length = 7.5  # Total rocket length (m)
-Bulkhead_length = 0.3  # Bulkhead thickness (m)
+Bulkhead_length = 0.2  # Bulkhead thickness (m)
 
 # Material densities
 rho_structure = 2700  # kg/m^3 (Aluminum 6061-T6 for structure)
@@ -34,7 +34,7 @@ def fuel_mass(length):
     return rho_fuel * volume
 
 # Bulkhead mass
-bulkhead_volume = (ID**2 * np.pi / 4) * Bulkhead_length
+bulkhead_volume = ((ID**2)* np.pi / 4) * Bulkhead_length
 bulkhead_mass = rho_structure * bulkhead_volume
 
 # Payload mass (assume a value, can be changed)
@@ -92,14 +92,14 @@ def maximize_delta_v(lengths):
 
 # Initial guesses
 initial_lengths = [2.5, 2.5, 2.5]
-
+adujusted_length = Total_length-3*Bulkhead_length  #Makes sure bulkhead length is taken into account
 
 # Constraint: Total length must sum to 7.5 m
-constraint = ({'type': 'eq', 'fun': lambda x: sum(x) - Total_length})
+constraint = ({'type': 'eq', 'fun': lambda x: sum(x) - adujusted_length})
 
 
 # Optimization
-result = opt.minimize(optimize_lengths, initial_lengths, constraints=constraint, bounds=[(0, 7)]*3)
+result = opt.minimize(maximize_delta_v, initial_lengths, constraints=constraint, bounds=[(0, 7.5)]*3)
 L1_opt, L2_opt, L3_opt = result.x
 
 # Compute optimized masses
@@ -119,21 +119,26 @@ M0_3 = M_s3 + M_f3 +  bulkhead_mass + payload_mass
 Mf_3 = M0_3 - M_f3
 DeltaV3 = Ve * np.log(M0_3 / Mf_3)
 
+#Mass Ratio results
+Mr1 = M0_1 / Mf_1
+Mr2 = M0_2 / Mf_2
+Mr3 = M0_3 / Mf_3
+
 # Print results
 print(f"\nOptimized Lengths: L1 = {L1_opt:.2f} m, L2 = {L2_opt:.2f} m, L3 = {L3_opt:.2f} m")
-print(f"Delta-V Stage 1: {DeltaV1:.2f} m/s")
-print(f"Delta-V Stage 2: {DeltaV2:.2f} m/s")
-print(f"Delta-V Stage 3: {DeltaV3:.2f} m/s")
+print(f"Delta-V Stage 1: {DeltaV1:.2f} m/s (Mass Ratio: {Mr1:.2f})")
+print(f"Delta-V Stage 2: {DeltaV2:.2f} m/s (Mass Ratio: {Mr2:.2f})")
+print(f"Delta-V Stage 3: {DeltaV3:.2f} m/s (Mass Ratio: {Mr3:.2f})")
 print(f"Total Delta-V: {DeltaV1 + DeltaV2 + DeltaV3:.2f} m/s\n")
 
 # Print individual mass for structure, propellant, and bulkhead for each stage
 print(f"Mass of Structure (Stage 1): {M_s1:.2f} kg")
 print(f"Mass of Propellant (Stage 1): {M_f1:.2f} kg")
-print(f"Mass of Bulkhead (Stage 1): {bulkhead_mass:.2f} kg\n")
+print(f"Mass of Bulkhead (Stage 1): {bulkhead_mass*3:.2f} kg\n")
 
 print(f"Mass of Structure (Stage 2): {M_s2:.2f} kg")
 print(f"Mass of Propellant (Stage 2): {M_f2:.2f} kg")
-print(f"Mass of Bulkhead (Stage 2): {bulkhead_mass:.2f} kg\n")
+print(f"Mass of Bulkhead (Stage 2): {bulkhead_mass*2:.2f} kg\n")
 
 print(f"Mass of Structure (Stage 3): {M_s3:.2f} kg")
 print(f"Mass of Propellant (Stage 3): {M_f3:.2f} kg")
