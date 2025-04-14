@@ -17,7 +17,6 @@ Bulkhead_length = 0.2  # Bulkhead thickness (m)
 rho_structure = 2700  # kg/m^3 (Aluminum 6061-T6 for structure)
 rho_fuel = 1040  # kg/m^3 (ABS Plastic for fuel)
 
-# User Inputs for Customization
 if input("Would you like to enter your own dimensions? (Y/N): ").strip().upper() == "Y":
     ID = float(input("Enter Inner Diameter (m): "))  # Inner diameter (m)
     rho_structure = float(input("Enter Structure Density (kg/m^3): "))  # Structure density (kg/m^3)
@@ -34,13 +33,17 @@ def fuel_mass(length):
     return rho_fuel * volume
 
 # Bulkhead mass
-bulkhead_volume = ((ID**2)* np.pi / 4) * Bulkhead_length
+bulkhead_volume = (ID**2 * np.pi / 4) * Bulkhead_length
 bulkhead_mass = rho_structure * bulkhead_volume
 
 # Payload mass (assume a value, can be changed)
 payload_mass = 250  # kg
 
-# Objective function: Balance mass ratios
+# Required first-stage mass ratio
+T = 10  # Burn time for first stage (seconds)
+required_mass_ratio_1st_stage = np.exp(g * T / (2 * Ve))
+
+# Objective function to maximize total Delta-V while maintaining the mass ratio constraint
 def optimize_lengths(lengths):
     L1, L2, L3 = lengths
     
@@ -48,98 +51,67 @@ def optimize_lengths(lengths):
     M_s1, M_s2, M_s3 = structure_mass(L1), structure_mass(L2), structure_mass(L3)
     M_f1, M_f2, M_f3 = fuel_mass(L1), fuel_mass(L2), fuel_mass(L3)
     
-    # Mass initial and final for each stage
-    M0_1 = M_s1 + M_s2 + M_s3 + M_f1 + M_f2 + M_f3 + 3 * bulkhead_mass + payload_mass
-    Mf_1 = M0_1 - M_f1
-    Mr1 = M0_1 / Mf_1
-    
-    
-    M0_2 =  M_s2 + M_s3 + M_f2 + M_f3 + 2 * bulkhead_mass + payload_mass
-    Mf_2 = M0_2 - M_f2
-    Mr2 = M0_2 / Mf_2
-    
-    M0_3 =  M_s3 + M_f3 + bulkhead_mass + payload_mass
-    Mf_3 = M0_3 - M_f3
-    Mr3 = M0_3 / Mf_3
-    
-    # Try to keep mass ratios similar
-    target_ratio = (Mr1 + Mr2 + Mr3) / 3
-    return (Mr1 - target_ratio)**2 + (Mr2 - target_ratio)**2 + (Mr3 - target_ratio)**2
-
-def maximize_delta_v(lengths):
-    L1, L2, L3 = lengths
-    
-    # Compute masses
-    M_s1, M_s2, M_s3 = structure_mass(L1), structure_mass(L2), structure_mass(L3)
-    M_f1, M_f2, M_f3 = fuel_mass(L1), fuel_mass(L2), fuel_mass(L3)
-
     # Compute initial and final masses for each stage
     M0_1 = M_s1 + M_s2 + M_s3 + M_f1 + M_f2 + M_f3 + 3 * bulkhead_mass + payload_mass
     Mf_1 = M0_1 - M_f1
-    DeltaV1 = Ve * np.log(M0_1 / Mf_1)
-
+    M_r1 = M0_1 / Mf_1
+    
     M0_2 = M_s2 + M_s3 + M_f2 + M_f3 + 2 * bulkhead_mass + payload_mass
     Mf_2 = M0_2 - M_f2
-    DeltaV2 = Ve * np.log(M0_2 / Mf_2)
-
+    M_r2 = M0_2 / Mf_2
+    
     M0_3 = M_s3 + M_f3 + bulkhead_mass + payload_mass
     Mf_3 = M0_3 - M_f3
+    M_r3 = M0_3 / Mf_3
+    
+    # Compute Delta-V for each stage
+    DeltaV1 = Ve * np.log(M0_1 / Mf_1)
+    DeltaV2 = Ve * np.log(M0_2 / Mf_2)
     DeltaV3 = Ve * np.log(M0_3 / Mf_3)
-
-    # Maximize total ΔV (by minimizing the negative value)
-    return -(DeltaV1 + DeltaV2 + DeltaV3)
-
+    
+    # Constraint penalty for maintaining first-stage mass ratio
+    penalty = (M_r1 - required_mass_ratio_1st_stage) ** 2 * 1000000  # Large weight to enforce constraint
+    
+    # Maximize total Delta-V (by minimizing the negative value plus penalty)
+    target_ratio = (M_r2 + M_r3) / 3
+    return (M_r2 - target_ratio)**2 + (M_r3 - target_ratio)**2 +penalty
 
 # Initial guesses
 initial_lengths = [2.5, 2.5, 2.5]
-adujusted_length = Total_length-3*Bulkhead_length  #Makes sure bulkhead length is taken into account
+adjusted_length = Total_length - 3 * Bulkhead_length  # Ensures bulkhead length is considered
 
-# Constraint: Total length must sum to 7.5 m
-constraint = ({'type': 'eq', 'fun': lambda x: sum(x) - adujusted_length})
-
+# Constraint: Total length must sum to the adjusted length
+constraint = ({'type': 'eq', 'fun': lambda x: sum(x) - adjusted_length})
 
 # Optimization
-result = opt.minimize(maximize_delta_v, initial_lengths, constraints=constraint, bounds=[(0, 7.5)]*3)
+result = opt.minimize(optimize_lengths, initial_lengths, constraints=constraint, bounds=[(0, Total_length)] * 3)
 L1_opt, L2_opt, L3_opt = result.x
 
 # Compute optimized masses
 M_s1, M_s2, M_s3 = structure_mass(L1_opt), structure_mass(L2_opt), structure_mass(L3_opt)
 M_f1, M_f2, M_f3 = fuel_mass(L1_opt), fuel_mass(L2_opt), fuel_mass(L3_opt)
 
-# Compute ΔV for each stage
+# Compute final Delta-V values
 M0_1 = M_s1 + M_s2 + M_s3 + M_f1 + M_f2 + M_f3 + 3 * bulkhead_mass + payload_mass
 Mf_1 = M0_1 - M_f1
 DeltaV1 = Ve * np.log(M0_1 / Mf_1)
 
-M0_2 =  M_s2 + M_s3 + M_f2 + M_f3 + 2 * bulkhead_mass + payload_mass
-Mf_2 = M_s2 + M_s3 +  M_f3 + 2 * bulkhead_mass + payload_mass
+M0_2 = M_s2 + M_s3 + M_f2 + M_f3 + 2 * bulkhead_mass + payload_mass
+Mf_2 = M0_2 - M_f2
 DeltaV2 = Ve * np.log(M0_2 / Mf_2)
 
-M0_3 = M_s3 + M_f3 +  bulkhead_mass + payload_mass
+M0_3 = M_s3 + M_f3 + bulkhead_mass + payload_mass
 Mf_3 = M0_3 - M_f3
 DeltaV3 = Ve * np.log(M0_3 / Mf_3)
 
-#Mass Ratio results
-Mr1 = M0_1 / Mf_1
-Mr2 = M0_2 / Mf_2
-Mr3 = M0_3 / Mf_3
+# Mass Ratios
+M_r1 = M0_1 / Mf_1
+M_r2 = M0_2 / Mf_2
+M_r3 = M0_3 / Mf_3
 
 # Print results
 print(f"\nOptimized Lengths: L1 = {L1_opt:.2f} m, L2 = {L2_opt:.2f} m, L3 = {L3_opt:.2f} m")
-print(f"Delta-V Stage 1: {DeltaV1:.2f} m/s (Mass Ratio: {Mr1:.2f})")
-print(f"Delta-V Stage 2: {DeltaV2:.2f} m/s (Mass Ratio: {Mr2:.2f})")
-print(f"Delta-V Stage 3: {DeltaV3:.2f} m/s (Mass Ratio: {Mr3:.2f})")
+print(f"Delta-V Stage 1: {DeltaV1:.2f} m/s (Mass Ratio: {M_r1:.2f})")
+print(f"Delta-V Stage 2: {DeltaV2:.2f} m/s (Mass Ratio: {M_r2:.2f})")
+print(f"Delta-V Stage 3: {DeltaV3:.2f} m/s (Mass Ratio: {M_r3:.2f})")
 print(f"Total Delta-V: {DeltaV1 + DeltaV2 + DeltaV3:.2f} m/s\n")
-
-# Print individual mass for structure, propellant, and bulkhead for each stage
-print(f"Mass of Structure (Stage 1): {M_s1:.2f} kg")
-print(f"Mass of Propellant (Stage 1): {M_f1:.2f} kg")
-print(f"Mass of Bulkhead (Stage 1): {bulkhead_mass*3:.2f} kg\n")
-
-print(f"Mass of Structure (Stage 2): {M_s2:.2f} kg")
-print(f"Mass of Propellant (Stage 2): {M_f2:.2f} kg")
-print(f"Mass of Bulkhead (Stage 2): {bulkhead_mass*2:.2f} kg\n")
-
-print(f"Mass of Structure (Stage 3): {M_s3:.2f} kg")
-print(f"Mass of Propellant (Stage 3): {M_f3:.2f} kg")
-print(f"Mass of Bulkhead (Stage 3): {bulkhead_mass:.2f} kg\n")
